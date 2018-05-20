@@ -179,7 +179,7 @@ void* request_func(void *args)
 
           //send_response(connfd, "HTTP/1.1 200 OK\n\n"); // send the response header
         while ( (bytes_read=read(fd, data_to_send, MAXLINE))>0 ){
-            send_response (connfd, data_to_send);
+            write (connfd, data_to_send, bytes_read);
         }
       }
       else{
