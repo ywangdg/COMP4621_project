@@ -170,33 +170,34 @@ void* request_func(void *args)
       for (int i = 0; extensions[i].ext != NULL; i++) {
         if (strcmp(file_type, extensions[i].ext) == 0) {
           printf("Opening \"%s\"\n", path);
-          if ( (fd=open(path, O_RDONLY))!=-1 ){    //FILE FOUND {
-               //ptr = path;
-               strncpy(content_type, extensions[i].mediatype, sizeof(content_type));
-               //printf("%s\n", content_type);
-               snprintf(wrt_buff, sizeof(wrt_buff) - 1, "HTTP/1.1 200 OK\r\nContent-Type: %s\r\nKeep-Alive: timeout=5, max=100\r\nConnection: Keep-Alive\r\n\r\n", content_type);
-               write(connfd, wrt_buff, strlen(wrt_buff));
-               while ( (bytes_read=read(fd, data_to_send, MAXLINE))>0 ){
-                   write (connfd, data_to_send, bytes_read);
-               }
-               break;
-             }
-          else{
-            snprintf(wrt_buff, sizeof(wrt_buff) - 1, "HTTP/1.1 404 Not Found\r\nContent-Type: text/html\r\nContent-Length: %lu\r\nKeep-Alive: timeout=5, max=100\r\nConnection: Keep-Alive\r\n\r\n<html><head><title>404 Not Found</title></head><body><p>404 Not Found: The requested resource %s was not found on this server.</p></body></html>", 159 + strlen(path), path);
+          strncpy(content_type, extensions[i].mediatype, sizeof(content_type));
+          if ( (fd=open(path, O_RDONLY))==-1 ){
+            snprintf(wrt_buff, sizeof(wrt_buff) - 1, "HTTP/1.1 404 Not Found\r\nContent-Type: %s\r\nKeep-Alive: timeout=5, max=100\r\nConnection: Keep-Alive\r\n\r\n<html><head><title>404 Not Found</title></head><body><p>404 Not Found: The requested resource %s was not found on this server.</p></body></html>", content_type, path);
             write(connfd, wrt_buff, strlen(wrt_buff));
           }
+          else {    //FILE FOUND {
+               //ptr = path;
+             //printf("%s\n", content_type);
+            snprintf(wrt_buff, sizeof(wrt_buff) - 1, "HTTP/1.1 200 OK\r\nContent-Type: %s\r\nKeep-Alive: timeout=5, max=100\r\nConnection: Keep-Alive\r\n\r\n", content_type);
+            write(connfd, wrt_buff, strlen(wrt_buff));
+            while ( (bytes_read=read(fd, data_to_send, MAXLINE))>0 ){
+              write (connfd, data_to_send, bytes_read);
+            }
+          }
+          break;
         }
         int size = sizeof(extensions) / sizeof(extensions[0]);
         if (i == size - 2) {
           printf("415 Unsupported Media Type\n");
           snprintf(wrt_buff, sizeof(wrt_buff) - 1,"HTTP/1.1 415 Unsupported Media Type\r\nKeep-Alive: timeout=5, max=100\r\nConnection: Keep-Alive\r\n\r\n<html><head><title>415 Unsupported Media Type</head></title><body><p>415 Unsupported Media Type!</p></body></html>");
           write(connfd, wrt_buff, strlen(wrt_buff));
+        //}
         }
-      }
       //else{
       //  snprintf(wrt_buff, sizeof(wrt_buff) - 1, "HTTP/1.1 404 Not Found\r\nContent-Type: text/html\r\nContent-Length: %lu\r\nConnection: Keep-Alive\r\n\r\n<html><head><title>404 Not Found</title></head><body><p>404 Not Found: The requested resource %s was not found on this server.</p></body></html>", 159 + strlen(path), path);
       //  write(connfd, wrt_buff, strlen(wrt_buff));
       //}
+      }
     }
   }
   else{
