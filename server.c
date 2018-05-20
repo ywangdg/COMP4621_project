@@ -29,18 +29,12 @@ extn extensions[] = {
  {"html","text/html" },
  {"pdf","application/pdf"},
  {"css", "text/css"},
- {"pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation"}
+ {"pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation"},
+ {0,0}
 };
 
 int threads_count = 0;
 char *ROOT;
-
-void send_response(int fd, char *msg) {
- int len = strlen(msg);
- if (write(fd, msg, len) == -1) {
-  printf("Error sending HTTP response\n");
- }
-}
 
 void* request_func(void *args);
 
@@ -128,6 +122,7 @@ void* request_func(void *args)
   char content_type[128] = {0};
   char tmp[MAXLINE] = {0};
   char *tmp_ptr;
+  char *msg;
 
   memset(&wrt_buff, 0, sizeof(wrt_buff));
   memset(&rcv_buff, 0, sizeof(rcv_buff));
@@ -166,27 +161,42 @@ void* request_func(void *args)
       strcpy(&path[strlen(ROOT)], reqline[1]);
       printf("file: %s\n", path);
 
-      if ( (fd=open(path, O_RDONLY))!=-1 ){    //FILE FOUND {
-          //ptr = path;
-        strncpy(tmp, path, sizeof(tmp));
-        tmp_ptr = tmp;
-        file_type = strsep(&tmp_ptr, ".");
-        file_type = strsep(&tmp_ptr, "");
-        printf("%s\n", file_type);
-
-        snprintf(wrt_buff, sizeof(wrt_buff) - 1, "HTTP/1.1 200 OK\r\nConnection: Keep-Alive\r\n\r\n");
-        send_response(connfd, wrt_buff);
-
-          //send_response(connfd, "HTTP/1.1 200 OK\n\n"); // send the response header
-        while ( (bytes_read=read(fd, data_to_send, MAXLINE))>0 ){
-            write (connfd, data_to_send, bytes_read);
+    //
+      strncpy(tmp, path, sizeof(tmp));
+      tmp_ptr = tmp;
+      file_type = strsep(&tmp_ptr, ".");
+      file_type = strsep(&tmp_ptr, "");
+      printf("%s\n", file_type);
+      for (int i = 0; extensions[i].ext != NULL; i++) {
+        if (strcmp(file_type, extensions[i].ext) == 0) {
+          printf("Opening \"%s\"\n", path);
+          if ( (fd=open(path, O_RDONLY))!=-1 ){    //FILE FOUND {
+               //ptr = path;
+               strncpy(content_type, extensions[i].mediatype, sizeof(content_type));
+               //printf("%s\n", content_type);
+               snprintf(wrt_buff, sizeof(wrt_buff) - 1, "HTTP/1.1 200 OK\r\nContent-Type: %s\r\nKeep-Alive: timeout=5, max=100\r\nConnection: Keep-Alive\r\n\r\n", content_type);
+               write(connfd, wrt_buff, strlen(wrt_buff));
+               while ( (bytes_read=read(fd, data_to_send, MAXLINE))>0 ){
+                   write (connfd, data_to_send, bytes_read);
+               }
+               break;
+             }
+          else{
+            snprintf(wrt_buff, sizeof(wrt_buff) - 1, "HTTP/1.1 404 Not Found\r\nContent-Type: text/html\r\nContent-Length: %lu\r\nKeep-Alive: timeout=5, max=100\r\nConnection: Keep-Alive\r\n\r\n<html><head><title>404 Not Found</title></head><body><p>404 Not Found: The requested resource %s was not found on this server.</p></body></html>", 159 + strlen(path), path);
+            write(connfd, wrt_buff, strlen(wrt_buff));
+          }
+        }
+        int size = sizeof(extensions) / sizeof(extensions[0]);
+        if (i == size - 2) {
+          printf("415 Unsupported Media Type\n");
+          snprintf(wrt_buff, sizeof(wrt_buff) - 1,"HTTP/1.1 415 Unsupported Media Type\r\nKeep-Alive: timeout=5, max=100\r\nConnection: Keep-Alive\r\n\r\n<html><head><title>415 Unsupported Media Type</head></title><body><p>415 Unsupported Media Type!</p></body></html>");
+          write(connfd, wrt_buff, strlen(wrt_buff));
         }
       }
-      else{
-        send_response(connfd, "HTTP/1.1 404 Not Found\n"); //FILE NOT FOUND
-        send_response(connfd, "<html><head><title>404 Not Found</head></title>");
-        send_response(connfd, "<body><p>404 Not Found: The requested resource could not be found!</p></body></html>");
-      }
+      //else{
+      //  snprintf(wrt_buff, sizeof(wrt_buff) - 1, "HTTP/1.1 404 Not Found\r\nContent-Type: text/html\r\nContent-Length: %lu\r\nConnection: Keep-Alive\r\n\r\n<html><head><title>404 Not Found</title></head><body><p>404 Not Found: The requested resource %s was not found on this server.</p></body></html>", 159 + strlen(path), path);
+      //  write(connfd, wrt_buff, strlen(wrt_buff));
+      //}
     }
   }
   else{
