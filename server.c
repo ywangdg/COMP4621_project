@@ -28,10 +28,19 @@ extn extensions[] = {
  {"gz",  "image/gz"  },
  {"html","text/html" },
  {"pdf","application/pdf"},
+ {"css", "text/css"},
+ {"pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation"}
 };
 
 int threads_count = 0;
 char *ROOT;
+
+void send_response(int fd, char *msg) {
+ int len = strlen(msg);
+ if (write(fd, msg, len) == -1) {
+  printf("Error sending HTTP response\n");
+ }
+}
 
 void* request_func(void *args);
 
@@ -45,10 +54,7 @@ int main(int argc, char **argv)
       char ip_str[INET_ADDRSTRLEN] = {0};
       ROOT = getenv("PWD");
 
-
-
       pthread_t threads[MAXTHREAD];
-
 
       /* initialize server socket */
       listenfd = socket(AF_INET, SOCK_STREAM, 0); /* SOCK_STREAM : TCP */
@@ -109,7 +115,6 @@ void* request_func(void *args)
 {
 	/* get the connection fd */
 	int connfd = (intptr_t)args;
-  char buff[MAXLINE] = {0};
   char *reqline[3];
   FILE *file;
   char filename[128] = {0};
@@ -119,6 +124,10 @@ void* request_func(void *args)
   char rcv_buff[MAXLINE] = {0};
   char data_to_send[MAXLINE] = {0};
   int  bytes_rcv,bytes_wrt, total_bytes_wrt, sz, bytes_read, fd;
+  char *file_type;
+  char content_type[128] = {0};
+  char tmp[MAXLINE] = {0};
+  char *tmp_ptr;
 
   memset(&wrt_buff, 0, sizeof(wrt_buff));
   memset(&rcv_buff, 0, sizeof(rcv_buff));
@@ -137,6 +146,8 @@ void* request_func(void *args)
 
   /* parse request */
   printf("%s\n", rcv_buff);
+
+  /*parse first line of HTTP request */
   reqline[0] = strtok (rcv_buff, " \t\n");
   printf("%s\n", reqline[0]);
   if ( strncmp(reqline[0], "GET\0", 4)==0 ){
@@ -144,27 +155,43 @@ void* request_func(void *args)
 		reqline[2] = strtok (NULL, " \t\n");
     printf("%s\n", reqline[1]);
     printf("%s\n", reqline[2]);
-    if ( strncmp( reqline[2], "HTTP/1.0", 8)!=0 && strncmp( reqline[2], "HTTP/1.1", 8)!=0 )
-			{
-				write(connfd, "HTTP/1.0 400 Bad Request\n", 25); // send the response header
-			}
-      else
-      {
-        if ( strncmp(reqline[1], "/\0", 2)==0 )
+    if ( strncmp( reqline[2], "HTTP/1.0", 8)!=0 && strncmp( reqline[2], "HTTP/1.1", 8)!=0 ){
+				write(connfd, "HTTP/1.1 400 Bad Request\n", 25); // send the response header
+		}
+    else{
+      if ( strncmp(reqline[1], "/\0", 2)==0 ){
         reqline[1] = "/index.html";        //Because if no file is specified, index.html will be opened by default (like it happens in APACHE...
+      }
+      strcpy(path, ROOT);
+      strcpy(&path[strlen(ROOT)], reqline[1]);
+      printf("file: %s\n", path);
 
-          strcpy(path, ROOT);
-          strcpy(&path[strlen(ROOT)], reqline[1]);
-          printf("file: %s\n", path);
+      if ( (fd=open(path, O_RDONLY))!=-1 ){    //FILE FOUND {
+          //ptr = path;
+        strncpy(tmp, path, sizeof(tmp));
+        tmp_ptr = tmp;
+        file_type = strsep(&tmp_ptr, ".");
+        file_type = strsep(&tmp_ptr, "");
+        printf("%s\n", file_type);
 
-          if ( (fd=open(path, O_RDONLY))!=-1 )    //FILE FOUND
-          {
-            send(connfd, "HTTP/1.1 200 OK\n\n", 17, 0); // send the response header
-            while ( (bytes_read=read(fd, data_to_send, MAXLINE))>0 )
-            write (connfd, data_to_send, bytes_read);
-          }
-          else    write(connfd, "HTTP/1.1 404 Not Found\n", 23); //FILE NOT FOUND
+        snprintf(wrt_buff, sizeof(wrt_buff) - 1, "HTTP/1.1 200 OK\r\nConnection: Keep-Alive\r\n\r\n");
+        send_response(connfd, wrt_buff);
+
+          //send_response(connfd, "HTTP/1.1 200 OK\n\n"); // send the response header
+        while ( (bytes_read=read(fd, data_to_send, MAXLINE))>0 ){
+            send_response (connfd, data_to_send);
         }
+      }
+      else{
+        send_response(connfd, "HTTP/1.1 404 Not Found\n"); //FILE NOT FOUND
+        send_response(connfd, "<html><head><title>404 Not Found</head></title>");
+        send_response(connfd, "<body><p>404 Not Found: The requested resource could not be found!</p></body></html>");
+      }
+    }
+  }
+  else{
+    printf("%s\n", "Not a GET request");
+    return 0;
   }
 
   threads_count--;
