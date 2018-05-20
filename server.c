@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
 #include <sys/socket.h>
@@ -8,12 +9,29 @@
 #include <pthread.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <fcntl.h>
 
 
 #define SERVER_PORT (12345)
 #define LISTENNQ (5)
 #define MAXLINE (1000)
 #define MAXTHREAD (5)
+
+typedef struct {
+ char *ext;
+ char *mediatype;
+} extn;
+
+//Possible media types
+extn extensions[] = {
+ {"jpg", "image/jpg" },
+ {"gz",  "image/gz"  },
+ {"html","text/html" },
+ {"pdf","application/pdf"},
+};
+
+int threads_count = 0;
+char *ROOT;
 
 void* request_func(void *args);
 
@@ -25,9 +43,10 @@ int main(int argc, char **argv)
       socklen_t len = sizeof(struct sockaddr_in);
 
       char ip_str[INET_ADDRSTRLEN] = {0};
+      ROOT = getenv("PWD");
 
 
-      int threads_count = 0;
+
       pthread_t threads[MAXTHREAD];
 
 
@@ -91,18 +110,21 @@ void* request_func(void *args)
 	/* get the connection fd */
 	int connfd = (intptr_t)args;
   char buff[MAXLINE] = {0};
+  char *reqline[3];
   FILE *file;
   char filename[128] = {0};
+  char path[MAXLINE] = {0};
   int index = 0;
   char wrt_buff[MAXLINE] = {0};
   char rcv_buff[MAXLINE] = {0};
-  int  bytes_rcv,bytes_wrt, total_bytes_wrt;
+  char data_to_send[MAXLINE] = {0};
+  int  bytes_rcv,bytes_wrt, total_bytes_wrt, sz, bytes_read, fd;
 
   memset(&wrt_buff, 0, sizeof(wrt_buff));
   memset(&rcv_buff, 0, sizeof(rcv_buff));
 
 	printf("heavy computation\n");
-	sleep(10);
+	sleep(5);
 
   /* read the response */
   bytes_rcv = 0;
@@ -113,39 +135,39 @@ void* request_func(void *args)
                   break;
   }
 
-  printf("%s\n", rcv_buff);
-
-  strncpy(filename, "index.html", sizeof(filename));
-//  filename = "/index.html";
-
   /* parse request */
+  printf("%s\n", rcv_buff);
+  reqline[0] = strtok (rcv_buff, " \t\n");
+  printf("%s\n", reqline[0]);
+  if ( strncmp(reqline[0], "GET\0", 4)==0 ){
+    reqline[1] = strtok (NULL, " \t");
+		reqline[2] = strtok (NULL, " \t\n");
+    printf("%s\n", reqline[1]);
+    printf("%s\n", reqline[2]);
+    if ( strncmp( reqline[2], "HTTP/1.0", 8)!=0 && strncmp( reqline[2], "HTTP/1.1", 8)!=0 )
+			{
+				write(connfd, "HTTP/1.0 400 Bad Request\n", 25); // send the response header
+			}
+      else
+      {
+        if ( strncmp(reqline[1], "/\0", 2)==0 )
+        reqline[1] = "/index.html";        //Because if no file is specified, index.html will be opened by default (like it happens in APACHE...
 
-  // sscanf(rcv_buff, "%s\n", filename);
+          strcpy(path, ROOT);
+          strcpy(&path[strlen(ROOT)], reqline[1]);
+          printf("file: %s\n", path);
 
-  /* read from file */
-  printf("Reading from file '%s' ...\n", filename);
-  //
-  file = fopen(filename, "r");
-  if (!file) {
-                snprintf(wrt_buff, sizeof(wrt_buff) - 1, "%s\n", "The file your requested does not exist ...");
-  } else {
-    while ((wrt_buff[index] = fgetc(file)) != EOF) {
-       ++index;
-       }
-     fclose (file);
+          if ( (fd=open(path, O_RDONLY))!=-1 )    //FILE FOUND
+          {
+            send(connfd, "HTTP/1.1 200 OK\n\n", 17, 0); // send the response header
+            while ( (bytes_read=read(fd, data_to_send, MAXLINE))>0 )
+            write (connfd, data_to_send, bytes_read);
+          }
+          else    write(connfd, "HTTP/1.1 404 Not Found\n", 23); //FILE NOT FOUND
+        }
   }
-  // /* prepare for the send buffer */
-  // snprintf(buff, sizeof(buff) - 1, "This is the content sent to connection %d\r\n", connfd);
-  //
-	// /* write the buffer to the connection */
-	// write(connfd, buff, strlen(buff));
 
-  /* send response */
-  bytes_wrt = 0;
-  total_bytes_wrt = strlen(wrt_buff);
-  while (bytes_wrt < total_bytes_wrt) {
-          bytes_wrt += write(connfd, wrt_buff + bytes_wrt, total_bytes_wrt - bytes_wrt);
-  }
+  threads_count--;
 
 
 	close(connfd);
